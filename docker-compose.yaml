@@ -1,0 +1,35 @@
+services:
+
+  ts_ui:
+    image: timeseries_studio
+    networks:
+      - ts_network
+    build:
+      context: .
+      dockerfile: Dockerfile.dockerfile
+    ports:
+      - 8501:8501
+ 
+  ts_db:
+    image: questdb/questdb:8.1.0
+    networks:
+      - ts_network
+
+    environment:
+      QDB_ILP_ENABLED: "true"  # Enable ILP (optional, usually on by default)
+      QDB_PG_ENABLED: "true"   # Enable PostgreSQL wire protocol (optional, usually on by default)
+      QDB_HTTP_ENABLED: "true" # Enable HTTP API (optional, usually on by default)
+    ports:
+      - 9000:9000 # REST API and Web Console
+      - 9009:9009 # InfluxDB Line Protocol
+      - 8812:8812 # Postgres wire protocol
+      - 9003:9003 # Min health server
+    volumes:
+      - questdb-data:/root/.questdb/db
+
+volumes:
+  questdb-data:
+  
+networks:
+  ts_network:
+    driver: bridge

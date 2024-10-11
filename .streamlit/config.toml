@@ -1,0 +1,6 @@
+[theme]
+base="dark"
+primaryColor="orange"
+
+[browser]
+gatherUsageStats = false

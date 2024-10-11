@@ -1,0 +1,12 @@
+questdb==2.0.3
+pandas
+numpy
+datetime
+tqdm
+tsfresh
+umap-learn
+requests
+matplotlib
+streamlit
+plotly
+scikit-learn
