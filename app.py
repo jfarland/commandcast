@@ -6,6 +6,7 @@ import plotly.graph_objects as go
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LinearRegression
 from sklearn.mixture import GaussianMixture
+from sklearn.metrics import mean_squared_error
 import umap
 
 import socket
@@ -186,7 +187,8 @@ def model_training():
     selected_dataset = st.selectbox("Select Dataset to Train Model", list(st.session_state['datasets'].keys()))
     dataset = st.session_state['datasets'][selected_dataset]
 
-    selected_column = st.selectbox("Select Time Series Column", dataset.columns)
+    #selected_column = st.selectbox("Select Time Series Column", dataset.columns)
+    selected_column = "values"
     target = dataset[selected_column]
 
     lag = st.slider("Select Lag (number of previous steps)", 1, 10, 1)
