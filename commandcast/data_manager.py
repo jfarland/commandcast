@@ -1,9 +1,6 @@
-
 # data wrangling
 import pandas as pd
 import numpy as np
-from pandas import json_normalize
-from datetime import datetime
 
 # os ops
 import sys
@@ -15,6 +12,7 @@ from tqdm import tqdm
 import uuid
 from distutils.util import strtobool 
 import requests
+from loguru import logger
 
 # timeseries feature engineering
 from tsfresh import extract_features
@@ -24,8 +22,6 @@ from tsfresh.feature_extraction import MinimalFCParameters, EfficientFCParameter
 from questdb.ingress import Sender, IngressError
 import questdb.ingress
 
-# plotting and visuals
-import matplotlib.pyplot as plt
 
 class DataManager:
 
@@ -45,7 +41,7 @@ class DataManager:
             response = requests.get(self.db_host + '/exec', params=query_params).json()
             return response
         except requests.exceptions.RequestException as e:
-            print(f'Error: {e}', file=sys.stderr)
+            logger.error(f"Error: {e}")
             return None
 
     def extract_config(self, config):
@@ -81,20 +77,20 @@ class DataManager:
         new_config = self.extract_config(config)
 
         if self.check_table_exists(new_config['ft_table_name']) and self.count_table_records(new_config['ts_table_name']):
-            print("WARNING: Timeseries and features table already exists. Aborting ingest.")
+            logger.warning("Timeseries and features table already exists. Aborting ingest.")
             return 
         else:
             try:
-                print("Creating dataset...")
+                logger.info("Creating dataset...")
                 ft_status = self.load_features(df, new_config)
                 ts_status = self.load_dataset(df, new_config)
 
                 if ft_status and ts_status:
                     self.record_dataset(new_config)
                 else:
-                    print("Dataset creation failed.")
+                    logger.error("Dataset creation failed.")
             except Exception as e:
-                print(f"Error during dataset creation: {e}")
+                logger.error(f"Error during dataset creation: {e}")
 
     def record_dataset(self, config):
         """Inserts dataset information into the data_catalog table."""
@@ -109,12 +105,12 @@ class DataManager:
         try:
             features = self.create_features(df, config)
             if verbose:
-                print(features.head())
+                logger.info(features.head())
             self.ingest_data(features, config['ft_table_name'], ['unique_id', 'dataset_name'], 'time_begin')
 
             return True
         except Exception as e:
-            print(f"Error loading features: {e}")
+            logger.error(f"Error loading features: {e}")
             return False
 
     def load_dataset(self, df, config):
@@ -123,7 +119,7 @@ class DataManager:
             self.ingest_data(df, config['ts_table_name'], ['unique_id'], 'ds')
             return True
         except Exception as e:
-            print(f"Error loading dataset: {e}")
+            logger.error(f"Error loading dataset: {e}")
             return False
 
     def ingest_data(self, df, table_name, symbols, time_col):
@@ -134,7 +130,7 @@ class DataManager:
                 buf.dataframe(df, table_name=table_name, symbols=symbols, at=time_col)
                 sender.flush(buf)
         except IngressError as e:
-            sys.stderr.write(f"Ingress error: {e}\n")
+            logger.error(f"Ingress error: {e}")
             raise
 
     def create_features(self, df, config):
@@ -160,38 +156,38 @@ class DataManager:
         return base_features
 
     def get_series(self, unique_id, table_name):
-        ''' Function to retrieve a time series by it's unique_id'''
+        ''' Function to retrieve a time series by its unique_id'''
         
         try:
             sql_query = f"SELECT * FROM {table_name} WHERE unique_id = '{unique_id}';"
             response = self.run(sql_query)
         
-            columns = json_normalize(response, 'columns')
+            columns = pd.json_normalize(response, 'columns')
             
-            df_parsed = json_normalize(response, 'dataset')
+            df_parsed = pd.json_normalize(response, 'dataset')
             df_parsed.columns = columns['name'].values 
             
             if "timestamp" in df_parsed.columns:
                 df_parsed.rename(columns={"timestamp": "ds"}, inplace=True)   
                     
             return df_parsed
-        except:
-            print('FAILED TO RETRIEVE TIME SERIES...')
+        except Exception as e:
+            logger.error(f"Failed to retrieve time series: {e}")
             return None
         
     def get_features(self, unique_id, table_name):
-        ''' Function to retrieve features by it's unique_id'''
+        ''' Function to retrieve features by its unique_id'''
         
         try:
             sql_query = f"SELECT * FROM {table_name} WHERE unique_id = '{unique_id}';"
             response = self.run(sql_query)
         
-            columns = json_normalize(response, 'columns')
+            columns = pd.json_normalize(response, 'columns')
             
-            df_parsed = json_normalize(response, 'dataset')
+            df_parsed = pd.json_normalize(response, 'dataset')
             df_parsed.columns = columns['name'].values 
                     
             return df_parsed
-        except:
-            print('FAILED TO RETRIEVE FEATURES...')
+        except Exception as e:
+            logger.error(f"Failed to retrieve features: {e}")
             return None
