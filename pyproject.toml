@@ -1,0 +1,28 @@
+[project]
+name = "commandcast"
+version = "0.0.1"
+description = "AI Agents for Timeseries Forecasting"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "questdb==2.0.3",
+    "numba>=0.60.0",
+    "loguru",
+    "pandas",
+    "numpy",
+    "datetime",
+    "tqdm",
+    "tsfresh",
+    "umap-learn",
+    "requests",
+    "matplotlib",
+    "streamlit",
+    "plotly",
+    "scikit-learn",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.29.5",
+    "nbformat>=4.2.0",
+]
