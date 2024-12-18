@@ -24,8 +24,31 @@ import questdb.ingress
 
 
 class DataManager:
+    """
+    The DataManager class is responsible for managing interactions with a time-series database. 
 
-    def __init__(self, host, port, ingress_port=9009):
+    It supports operations like creating datasets, extracting features, loading data, 
+    and querying time-series and feature tables. The class integrates data engineering 
+    functionalities with a focus on time-series data storage and retrieval.
+
+    Attributes:
+        host (str): The database host.
+        api_port (int): The API port for database interactions.
+        ingress_port (int): The port for data ingestion using the QuestDB Ingress API.
+        db_host (str): The full URL of the database host for API queries.
+    """
+
+    def __init__(self, host: str, port: int, ingress_port: int = 9009) -> None:
+        """
+        Initializes the DataManager instance with database connection details.
+
+        Args:
+            host (str): The hostname or IP address of the database server.
+            port (int): The port number for the database's API endpoint.
+            ingress_port (int, optional): The port number for the data ingestion interface. Defaults to 9009.
+
+        Sets up the database connection URL and ensures that the `data_catalog` table exists for tracking datasets.
+        """
         self.host = host
         self.api_port = port
         self.ingress_port = ingress_port
@@ -35,7 +58,17 @@ class DataManager:
         sql_query = 'CREATE TABLE IF NOT EXISTS data_catalog (name STRING, timeseries_table STRING, features_table STRING, ingest_timestamp TIMESTAMP);'
         self.run(sql_query)
 
-    def run(self, sql_query):
+    def run(self, sql_query: str) -> dict | None:
+        """
+        Executes a SQL query on the database and retrieves the result.
+
+        Args:
+            sql_query (str): The SQL query string to be executed.
+
+        Returns:
+            dict | None: The JSON response from the database if the query is successful.
+                         None if an error occurs during the query execution.
+        """
         query_params = {'query': sql_query, 'fmt': 'json'}
         try:
             response = requests.get(self.db_host + '/exec', params=query_params).json()
@@ -44,8 +77,15 @@ class DataManager:
             logger.error(f"Error: {e}")
             return None
 
-    def extract_config(self, config):
-        """Extracts and transforms config for internal use"""
+    def extract_config(self, config: dict) -> dict:
+        """Extracts and transforms configuration details for internal use.
+
+        Args:
+            config (dict): A dictionary containing dataset configuration.
+
+        Returns:
+            dict: Transformed configuration with dataset and table details.
+        """
         dataset_name = config['dataset_name']
         return {
             'dataset_name': dataset_name,
@@ -58,12 +98,28 @@ class DataManager:
             'feature_engineering': config.get('feature_engineering', 'minimal'),
         }
 
-    def count_table_records(self, table_name):
+    def count_table_records(self, table_name: str) -> int:
+        """Counts the number of records in a specified table.
+
+        Args:
+            table_name (str): The name of the table to query.
+
+        Returns:
+            int: The number of records in the table.
+        """
         sql = f"""SELECT COUNT(*) FROM {table_name};"""
         result = self.run(sql)
         return result['dataset'][0][0]
 
-    def check_table_exists(self, table_name):
+    def check_table_exists(self, table_name: str) -> bool:
+        """Checks if a specified table exists in the database.
+
+        Args:
+            table_name (str): The name of the table to check.
+
+        Returns:
+            bool: True if the table exists, False otherwise.
+        """
         sql = f"""SELECT * FROM tables WHERE table_name = '{table_name}';"""
         result = self.run(sql)
         
@@ -72,8 +128,16 @@ class DataManager:
             return len(result["dataset"]) > 0
         return False
 
-    def create_dataset(self, config, df):
-        """Creates dataset by writing to timeseries records and features"""
+    def create_dataset(self, config: dict, df: pd.DataFrame) -> None:
+        """Creates a dataset by writing timeseries records and features to the database.
+
+        Args:
+            config (dict): Configuration details for the dataset.
+            df (pd.DataFrame): DataFrame containing the data to be ingested.
+
+        Returns:
+            None
+        """
         new_config = self.extract_config(config)
 
         if self.check_table_exists(new_config['ft_table_name']) and self.count_table_records(new_config['ts_table_name']):
@@ -92,16 +156,32 @@ class DataManager:
             except Exception as e:
                 logger.error(f"Error during dataset creation: {e}")
 
-    def record_dataset(self, config):
-        """Inserts dataset information into the data_catalog table."""
+    def record_dataset(self, config: dict) -> None:
+        """Inserts dataset information into the data catalog.
+
+        Args:
+            config (dict): Configuration details including dataset and table names.
+
+        Returns:
+            None
+        """
         sql_query = f"""
             INSERT INTO data_catalog (name, timeseries_table, features_table, ingest_timestamp) 
             VALUES ('{config['dataset_name']}', '{config['ts_table_name']}', '{config['ft_table_name']}', now());
         """
         self.run(sql_query)
 
-    def load_features(self, df, config, verbose=True):
-        """Prepares and load engineered features."""
+    def load_features(self, df: pd.DataFrame, config: dict, verbose: bool = True) -> bool:
+        """Prepares and loads engineered features into the database.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing raw data.
+            config (dict): Configuration for feature generation.
+            verbose (bool): Flag to enable logging of feature details.
+
+        Returns:
+            bool: True if features were successfully loaded, False otherwise.
+        """
         try:
             features = self.create_features(df, config)
             if verbose:
@@ -113,8 +193,16 @@ class DataManager:
             logger.error(f"Error loading features: {e}")
             return False
 
-    def load_dataset(self, df, config):
-        """Loads timeseries data."""
+    def load_dataset(self, df: pd.DataFrame, config: dict) -> bool:
+        """Loads timeseries data into the database.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing timeseries data.
+            config (dict): Configuration for dataset ingestion.
+
+        Returns:
+            bool: True if dataset was successfully loaded, False otherwise.
+        """
         try:
             self.ingest_data(df, config['ts_table_name'], ['unique_id'], 'ds')
             return True
@@ -122,8 +210,18 @@ class DataManager:
             logger.error(f"Error loading dataset: {e}")
             return False
 
-    def ingest_data(self, df, table_name, symbols, time_col):
-        """Ingests data into the specified table using Influx Line Protocol."""
+    def ingest_data(self, df: pd.DataFrame, table_name: str, symbols: list[str], time_col: str) -> None:
+        """Ingests data into a specified table using Influx Line Protocol.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing the data to be ingested.
+            table_name (str): Name of the table to ingest data into.
+            symbols (list[str]): List of symbol columns.
+            time_col (str): Name of the time column.
+
+        Returns:
+            None
+        """
         try:
             with Sender('tcp', self.host, self.ingress_port) as sender:
                 buf = sender.new_buffer()
@@ -133,8 +231,16 @@ class DataManager:
             logger.error(f"Ingress error: {e}")
             raise
 
-    def create_features(self, df, config):
-        """Creates engineered features based on the provided dataframe and config."""
+    def create_features(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
+        """Creates engineered features based on the provided DataFrame and configuration.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing the raw data.
+            config (dict): Configuration specifying feature engineering details.
+
+        Returns:
+            pd.DataFrame: A DataFrame containing engineered features.
+        """
         base_features = df.groupby(config['id_col'])[config['ds_col']].agg(['min', 'max', 'count']).reset_index()
         base_features['dataset_name'] = config['dataset_name']
         
@@ -155,9 +261,16 @@ class DataManager:
         base_features.rename(columns={"min": "time_begin", "max": "time_end"}, inplace=True)
         return base_features
 
-    def get_series(self, unique_id, table_name):
-        ''' Function to retrieve a time series by its unique_id'''
-        
+    def get_series(self, unique_id: str, table_name: str) -> pd.DataFrame | None:
+        """Retrieves a time series record from the specified table by its unique identifier.
+
+        Args:
+            unique_id (str): The unique identifier for the time series.
+            table_name (str): The name of the table containing the time series data.
+
+        Returns:
+            pd.DataFrame | None: A DataFrame containing the time series data, or None if retrieval fails.
+        """
         try:
             sql_query = f"SELECT * FROM {table_name} WHERE unique_id = '{unique_id}';"
             response = self.run(sql_query)
@@ -175,9 +288,16 @@ class DataManager:
             logger.error(f"Failed to retrieve time series: {e}")
             return None
         
-    def get_features(self, unique_id, table_name):
-        ''' Function to retrieve features by its unique_id'''
-        
+    def get_features(self, unique_id: str, table_name: str) -> pd.DataFrame | None:
+        """Retrieves features for a specific unique identifier from a specified table.
+
+        Args:
+            unique_id (str): Unique identifier for the features to retrieve.
+            table_name (str): Name of the table containing the features.
+
+        Returns:
+            pd.DataFrame | None: A DataFrame containing the retrieved features.
+        """
         try:
             sql_query = f"SELECT * FROM {table_name} WHERE unique_id = '{unique_id}';"
             response = self.run(sql_query)
