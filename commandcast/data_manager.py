@@ -22,6 +22,46 @@ from tsfresh.feature_extraction import MinimalFCParameters, EfficientFCParameter
 from questdb.ingress import Sender, IngressError
 import questdb.ingress
 
+from dataclasses import dataclass, field, asdict
+import typing as t  
+
+#ToDo: all configs definitions and possible inits should go to config.py
+@dataclass
+class DataManagerConfig:
+    dataset_name: str
+    hierarchy: list[str] = field(default_factory=list)
+    measure_cols: list[str] = field(default_factory=list)
+    feature_engineering: str = 'minimal'
+    id_col: str = 'unique_id'
+    ds_col: str = 'ds'
+    ts_table_name: str = field(init=False)
+    ft_table_name: str = field(init=False)
+    
+    def __post_init__(self):
+        if self.feature_engineering not in ['minimal', 'efficient']:
+            raise ValueError(
+                f"Feature Engineering must be one of ['minimal', 'efficient'], "
+                f"got {self.feature_engineering} instead"
+            )
+        self.ts_table_name = f"{self.dataset_name}_ts"
+        self.ft_table_name = f"{self.dataset_name}_ft"
+    
+    def to_dict(self) -> dict:
+        return asdict(self) 
+    
+    # I need this to be able to call dict(cfg)
+    def __iter__(self) -> t.Iterator[tuple[str, object]]: 
+        yield from tuple(self.__dict__.items())
+    
+    #I need this to mimic cfg['key'] 
+    def __getitem__(self, key):
+        if key in self.__dict__:
+            return self.__dict__[key]
+        else:
+            raise KeyError(
+                f"No such key: '{key}', "
+                f"available values: {[k for k in self.__dict__]}"
+            )
 
 class DataManager:
     """
@@ -55,7 +95,9 @@ class DataManager:
         self.db_host = f'http://{host}:{port}'
 
         # Ensure datasets table exists
-        sql_query = 'CREATE TABLE IF NOT EXISTS data_catalog (name STRING, timeseries_table STRING, features_table STRING, ingest_timestamp TIMESTAMP);'
+        sql_query = """CREATE TABLE IF NOT EXISTS data_catalog 
+        (name STRING, timeseries_table STRING, features_table STRING, ingest_timestamp TIMESTAMP);
+        """
         self.run(sql_query)
 
     def run(self, sql_query: str) -> dict | None:
@@ -76,27 +118,6 @@ class DataManager:
         except requests.exceptions.RequestException as e:
             logger.error(f"Error: {e}")
             return None
-
-    def extract_config(self, config: dict) -> dict:
-        """Extracts and transforms configuration details for internal use.
-
-        Args:
-            config (dict): A dictionary containing dataset configuration.
-
-        Returns:
-            dict: Transformed configuration with dataset and table details.
-        """
-        dataset_name = config['dataset_name']
-        return {
-            'dataset_name': dataset_name,
-            'ts_table_name': f"{dataset_name}_ts",
-            'ft_table_name': f"{dataset_name}_ft",
-            'hierarchy': config['hierarchy'],
-            'measure_cols': config['measure_cols'],
-            'id_col': 'unique_id',
-            'ds_col': 'ds',
-            'feature_engineering': config.get('feature_engineering', 'minimal'),
-        }
 
     def count_table_records(self, table_name: str) -> int:
         """Counts the number of records in a specified table.
@@ -128,39 +149,37 @@ class DataManager:
             return len(result["dataset"]) > 0
         return False
 
-    def create_dataset(self, config: dict, df: pd.DataFrame) -> None:
+    def create_dataset(self, config: DataManagerConfig, df: pd.DataFrame) -> None:
         """Creates a dataset by writing timeseries records and features to the database.
 
         Args:
-            config (dict): Configuration details for the dataset.
+            config (DataManagerConfig): Configuration details for the dataset.
             df (pd.DataFrame): DataFrame containing the data to be ingested.
 
         Returns:
             None
         """
-        new_config = self.extract_config(config)
-
-        if self.check_table_exists(new_config['ft_table_name']) and self.count_table_records(new_config['ts_table_name']):
+        if self.check_table_exists(config['ft_table_name']) and self.count_table_records(config['ts_table_name']):
             logger.warning("Timeseries and features table already exists. Aborting ingest.")
             return 
         else:
             try:
                 logger.info("Creating dataset...")
-                ft_status = self.load_features(df, new_config)
-                ts_status = self.load_dataset(df, new_config)
+                ft_status = self.load_features(df, config)
+                ts_status = self.load_dataset(df, config)
 
                 if ft_status and ts_status:
-                    self.record_dataset(new_config)
+                    self.record_dataset(config)
                 else:
                     logger.error("Dataset creation failed.")
             except Exception as e:
                 logger.error(f"Error during dataset creation: {e}")
 
-    def record_dataset(self, config: dict) -> None:
+    def record_dataset(self, config: DataManagerConfig) -> None:
         """Inserts dataset information into the data catalog.
 
         Args:
-            config (dict): Configuration details including dataset and table names.
+            config (DataManagerConfig): Configuration details including dataset and table names.
 
         Returns:
             None
@@ -171,12 +190,12 @@ class DataManager:
         """
         self.run(sql_query)
 
-    def load_features(self, df: pd.DataFrame, config: dict, verbose: bool = True) -> bool:
+    def load_features(self, df: pd.DataFrame, config: DataManagerConfig, verbose: bool = True) -> bool:
         """Prepares and loads engineered features into the database.
 
         Args:
             df (pd.DataFrame): DataFrame containing raw data.
-            config (dict): Configuration for feature generation.
+            config (DataManagerConfig): Configuration for feature generation.
             verbose (bool): Flag to enable logging of feature details.
 
         Returns:
@@ -193,12 +212,12 @@ class DataManager:
             logger.error(f"Error loading features: {e}")
             return False
 
-    def load_dataset(self, df: pd.DataFrame, config: dict) -> bool:
+    def load_dataset(self, df: pd.DataFrame, config: DataManagerConfig) -> bool:
         """Loads timeseries data into the database.
 
         Args:
             df (pd.DataFrame): DataFrame containing timeseries data.
-            config (dict): Configuration for dataset ingestion.
+            config (DataManagerConfig): Configuration for dataset ingestion.
 
         Returns:
             bool: True if dataset was successfully loaded, False otherwise.
@@ -231,12 +250,12 @@ class DataManager:
             logger.error(f"Ingress error: {e}")
             raise
 
-    def create_features(self, df: pd.DataFrame, config: dict) -> pd.DataFrame:
+    def create_features(self, df: pd.DataFrame, config: DataManagerConfig) -> pd.DataFrame:
         """Creates engineered features based on the provided DataFrame and configuration.
 
         Args:
             df (pd.DataFrame): DataFrame containing the raw data.
-            config (dict): Configuration specifying feature engineering details.
+            config (DataManagerConfig): Configuration specifying feature engineering details.
 
         Returns:
             pd.DataFrame: A DataFrame containing engineered features.

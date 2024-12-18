@@ -10,7 +10,7 @@ from sklearn.metrics import mean_squared_error
 import umap
 
 import socket
-from commandcast.data_manager import DataManager
+from commandcast.data_manager import DataManager, DataManagerConfig
 
 # Page Config
 st.set_page_config(page_title="CommandCast", layout="wide", page_icon="🫡")
@@ -32,14 +32,14 @@ if 'datasets' not in st.session_state:
     id_col = 'unique_id'
     measure_cols = list(default_df.drop(['ds', 'unique_id'], axis=1).columns)        
 
-    st.session_state['dataset_config'] = {
+    st.session_state['dataset_config'] = DataManagerConfig(**{
         'dataset_name': 'M4_HOURLY',
         'feature_engineering': 'minimal',
         'ds_col': ds_col,
         'id_col': id_col,
         'hierarchy': [],
         'measure_cols': measure_cols
-    }
+    })
 
     try:
         st.session_state.db.create_dataset(
@@ -108,14 +108,14 @@ def configure_dataset():
         measure_cols = st.multiselect("Measure Columns", df.columns.tolist())
 
         if st.button("Submit"):
-            st.session_state['datasets'][uploaded_file.name + "_config"] = {
+            st.session_state['datasets'][uploaded_file.name + "_config"] = DataManagerConfig(**{
                 "dataset_name": dataset_name,
                 "feature_engineering": feature_engineering,
                 "ds_col": ds_col,
                 "id_col": id_col,
                 "hierarchy": hierarchy,
                 "measure_cols": measure_cols,
-            }
+            })
             st.success("Dataset details saved successfully!")
             st.rerun()
 
@@ -130,15 +130,15 @@ def data_viewer():
         df = st.session_state['datasets'][selected_dataset]
         df_config = st.session_state['dataset_config']
         with st.expander("Dataset Details..."):
-            st.json(df_config)
+            st.json(df_config.to_dict())
 
         st.write("Select timeseries to visualize")
         ids = df.unique_id.unique()
         selected_id = st.selectbox("Pick an ID", ids)
 
         if selected_id:
-            series = st.session_state.db.get_series(selected_id, table_name = df_config['dataset_name'] + "_ts")
-            series_features = st.session_state.db.get_features(selected_id, table_name = df_config['dataset_name'] + "_ft")
+            series = st.session_state.db.get_series(selected_id, table_name = df_config['ts_table_name'])
+            series_features = st.session_state.db.get_features(selected_id, table_name = df_config['ft_table_name'])
             st.dataframe(series_features, use_container_width=True)
             st.plotly_chart(plot_time_series(series, title=selected_id))
 
@@ -146,7 +146,7 @@ def data_viewer():
             with st.spinner("Running analysis..."):
                 # retrieve timeseries features
                 features = st.session_state.db.create_features(
-                    df, config=st.session_state.db.extract_config(df_config)
+                    df, config=df_config
                 )
                 feature_cols = list(features.drop(['unique_id', 'dataset_name', 'time_begin', 'time_end', 'count'], axis=1).columns)  
 
