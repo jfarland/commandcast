@@ -1,6 +1,9 @@
 # Make utility Installation
 sudo apt install make
 
+# UV project management
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
 # Docker Installation - https://docs.docker.com/engine/install/ubuntu/#installation-methods
 # Add Docker's official GPG key:
 sudo apt-get update
